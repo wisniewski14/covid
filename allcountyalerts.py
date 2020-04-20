@@ -13,7 +13,7 @@ with open(filepath) as f:
 
 print("Loading county geometries...")
 for coun in countys:
-	filename="allcounties/"+countys[coun]["fips"]
+	filename="allcounties/"+countys[coun]["fips"]+".json"
 	with open(filename) as f:
 		cdata=json.load(f)
 	countys[coun]["geometry"]=cdata["geometry"] 
@@ -30,7 +30,10 @@ for event in events:
 	for nwscode in event["properties"]["geocode"]["UGC"]:
 		if nwscode in countys:
 			print(event["properties"]["event"],"in",countys[nwscode]["name"],countys[nwscode]["state"])
-			countys[nwscode]["events"].append(event["geometry"]["coordinates"])
+			if event["geometry"]:
+				countys[nwscode]["events"].append(event["geometry"]["coordinates"])
+			else:
+				print("No geometry.")
 
 
 for coun in countys:
@@ -70,6 +73,8 @@ for coun in countys:
 				combinedpoly=combinedpoly.union(epoly)
 			eventcount+=1
 		# Get intersection
+		cpoly=cpoly.buffer(0)
+		combinedpoly=combinedpoly.buffer(0)
 		covered=(combinedpoly.intersection(cpoly).area/cpoly.area)*100
 		countys[coun]["affected"]=covered
 		print(countys[coun]["name"],countys[coun]["state"],covered)
@@ -87,7 +92,6 @@ with open("counties_weatheralerts_severe.csv","w") as f:
 	
 
 
-exit()
 
 
 # Generate geojson (~600MB)
