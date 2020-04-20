@@ -21,6 +21,9 @@ for c in allc:
 	c2=countys[c1]
 	fips=c2
 	nwscode=c1
+	cname=c["properties"]["name"]
+	print(cname)
+	#if "Citrus" in cname:
 	while True:
 		r = requests.get("https://api.weather.gov/zones/county/"+nwscode)
 		if r:
@@ -28,6 +31,18 @@ for c in allc:
 	cinfo=r.json()
 	print(c1,c2,cinfo["properties"]["state"],cinfo["properties"]["name"])
 	cinfo.pop("@context")
+	if cinfo["geometry"]["type"] == "GeometryCollection":
+		geoms = cinfo["geometry"]["geometries"]
+		cinfo.pop("geometry")
+		cinfo["geometry"]={}
+		cinfo["geometry"]["type"] = "MultiPolygon"
+		cinfo["geometry"]["coordinates"] = []
+		for geom in geoms:
+			print("type:",geom["type"])
+			if geom["type"] == "Polygon":
+				cinfo["geometry"]["coordinates"].append(geom["coordinates"][0])
+			else:
+				cinfo["geometry"]["coordinates"].extend(geom["coordinates"])
 	#print(cinfo)
-	with open("allcounties/"+fips,"w") as f:
+	with open("allcounties/"+fips+".json","w") as f:
 		f.writelines(json.dumps(cinfo,indent=2))
