@@ -2,14 +2,23 @@ import requests
 import datetime
 import json
 from shapely.geometry import MultiPolygon, Polygon, shape, GeometryCollection
+laxfile="lax_fips_list.csv"
+laxfips=[]
+with open(laxfile) as f:
+	f.readline()
+	for line in f:
+		laxfips.append(line.strip())
+
 
 print("making dict of NWS codes, adding FIPS...")
 filepath="countyinfo"
 countys={}
 with open(filepath) as f:
-        for line in f:
-                dat = line.split("|")
-                countys[dat[0]+"C"+dat[6][2:]]= {"fips": dat[6]}
+	for line in f:
+		dat = line.split("|")
+		print(dat[6])
+		if dat[6] in laxfips:
+			countys[dat[0]+"C"+dat[6][2:]]= {"fips": dat[6]}
 
 
 print("Loading county geometries...")
@@ -23,9 +32,9 @@ for coun in countys:
 	countys[coun]["events"]=[]
 
 print("Fetching NWS alert data...")
-#r=requests.get("https://api.weather.gov/alerts?severity=severe&certainty=observed")
-#r=requests.get("https://api.weather.gov/alerts?severity=severe")
-r=requests.get("https://api.weather.gov/alerts/active?severity=severe")
+link="https://api.weather.gov/alerts/active?severity=severe"
+#link="https://api.weather.gov/alerts/"
+r=requests.get(link)
 datestr=datetime.datetime.strftime(datetime.datetime.now(),"%Y%m%d_%H%M")
 with open(datestr+"_nws_alerts_active_severe.json","w") as f:
 	f.writelines(json.dumps(r.json(),indent=4))
@@ -33,14 +42,14 @@ with open(datestr+"_nws_alerts_active_severe.json","w") as f:
 events = r.json()["features"]
 
 
-for event in events:
-	for nwscode in event["properties"]["geocode"]["UGC"]:
-		if nwscode in countys:
-			print(event["properties"]["event"],"in",countys[nwscode]["name"],countys[nwscode]["state"])
-			if event["geometry"]:
-				countys[nwscode]["events"].append(event["geometry"]["coordinates"])
-			else:
-				print("No geometry.")
+#for event in events:
+#	for nwscode in event["properties"]["geocode"]["UGC"]:
+#		if nwscode in countys:
+#			print(event["properties"]["event"],"in",countys[nwscode]["name"],countys[nwscode]["state"])
+#			if event["geometry"]:
+#				countys[nwscode]["events"].append(event["geometry"]["coordinates"])
+#			else:
+#				print("No geometry.")
 
 
 for coun in countys:
@@ -49,43 +58,44 @@ for coun in countys:
 		print(countys[coun]["name"],countys[coun]["state"],en)
 
 for coun in countys:
-	en=len(countys[coun]["events"])
-	if en==0:
-		countys[coun]["affected"]=0
+	# Get county polygon
+	cgeom=countys[coun]["geometry"]["coordinates"]
+	ctype = countys[coun]["geometry"]["type"]
+	if ctype == "Polygon":
+		cpoly=Polygon(cgeom[0])
 	else:
-		# Get county polygon
-		cgeom=countys[coun]["geometry"]["coordinates"]
-		ctype = countys[coun]["geometry"]["type"]
-		if ctype == "Polygon":
-			cpoly=Polygon(cgeom[0])
-		else:
-			polys=[]
-			for poly in cgeom:
-				polys.append(Polygon(poly[0]))
-			cpoly=MultiPolygon(polys)
-		# Get event polygons
-		egeoms=countys[coun]["events"]
-		eventcount=0
-		for event in countys[coun]["events"]:
-			if len(event)==1:
-				epoly=Polygon(event[0])
+		polys=[]
+		for poly in cgeom:
+			polys.append(Polygon(poly[0]))
+		cpoly=MultiPolygon(polys)
+	cpoly=cpoly.buffer(0)
+	eventcount=0
+	for event in events:
+		# Get event polygon
+		if event["geometry"]:
+			ecoords=event["geometry"]["coordinates"]
+			if len(ecoords)==1:
+				epoly=Polygon(ecoords[0])
 			else:
 				polys=[]
-				for poly in event:
+				for poly in ecoords:
 					polys.append(Polygon(poly[0]))
 				epoly=MultiPolygon(polys)
-			if eventcount==0:
-				combinedpoly=epoly
-			else:	
-				combinedpoly=combinedpoly.union(epoly)
-			eventcount+=1
+			epoly=epoly.buffer(0)
+			if epoly.intersects(cpoly):
+				if eventcount==0:
+					combinedpoly=epoly
+				else:	
+					combinedpoly=combinedpoly.union(epoly)
+				eventcount+=1
+	if eventcount>0:
 		# Get intersection
-		cpoly=cpoly.buffer(0)
 		combinedpoly=combinedpoly.buffer(0)
 		covered=(combinedpoly.intersection(cpoly).area/cpoly.area)*100
 		countys[coun]["affected"]=covered
 		print(countys[coun]["name"],countys[coun]["state"],covered)
-
+	else:
+		countys[coun]["affected"]=0.0
 
 # Generate csv
 csvlist=[]
